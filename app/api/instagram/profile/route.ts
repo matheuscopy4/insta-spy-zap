@@ -38,15 +38,19 @@ export async function POST(request: NextRequest) {
 
     const rapidapiKey = process.env.INSTAGRAM_RAPIDAPI_KEY || ""
 
-    console.log("[v0] Searching for Instagram user:", cleanUsername)
+    console.log("[v0] Fetching Instagram profile for:", cleanUsername)
 
-    const url = `https://free-instagram-scraper.p.rapidapi.com/search/users/${cleanUsername}`
+    const url = "https://instagram120.p.rapidapi.com/api/instagram/profile"
     const response = await fetch(url, {
-      method: "GET",
+      method: "POST",
       headers: {
         "x-rapidapi-key": rapidapiKey,
-        "x-rapidapi-host": "free-instagram-scraper.p.rapidapi.com",
+        "x-rapidapi-host": "instagram120.p.rapidapi.com",
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        username: cleanUsername,
+      }),
     })
 
     const responseText = await response.text()
@@ -87,10 +91,9 @@ export async function POST(request: NextRequest) {
 
     console.log("[v0] Parsed data:", JSON.stringify(data, null, 2))
 
-    const users = data.users || data.data?.users || data.result?.users || []
-    const user = users.length > 0 ? users[0] : null
+    const user = data.result || data.data || data
 
-    if (!user) {
+    if (!user || !user.username) {
       return NextResponse.json(
         {
           success: false,
@@ -107,27 +110,40 @@ export async function POST(request: NextRequest) {
       username: user.username || cleanUsername,
       full_name: user.full_name || user.fullName || user.name || "",
       biography: user.biography || user.bio || "",
-      profile_pic_url: user.profile_pic_url || user.profile_picture_url || user.hd_profile_pic_url || "",
-      follower_count: user.follower_count || user.followers || 0,
-      following_count: user.following_count || user.following || 0,
-      media_count: user.media_count || user.posts || user.post_count || 0,
+      profile_pic_url:
+        user.profile_pic_url ||
+        user.profile_pic_url_hd ||
+        user.profile_picture_url ||
+        user.hd_profile_pic_url ||
+        user.profile_pic ||
+        "",
+      follower_count: user.edge_followed_by?.count || user.follower_count || user.followers || 0,
+      following_count: user.edge_follow?.count || user.following_count || user.following || 0,
+      media_count: user.edge_owner_to_timeline_media?.count || user.media_count || user.posts || user.post_count || 0,
       is_private: user.is_private || user.private || false,
       is_verified: user.is_verified || user.verified || false,
-      pk: user.pk || user.id || user.user_id || "",
+      pk: user.id || user.pk || user.user_id || "",
     }
 
     console.log("[v0] Final extracted profile:", JSON.stringify(extractedProfile, null, 2))
 
+    const profileWithProxy = {
+      ...extractedProfile,
+      profile_pic_url: extractedProfile.profile_pic_url
+        ? `/api/instagram/image?url=${encodeURIComponent(extractedProfile.profile_pic_url)}`
+        : "",
+    }
+
     // Cache the result
     cache.set(cleanUsername, {
-      profile: extractedProfile,
+      profile: profileWithProxy,
       timestamp: Date.now(),
     })
 
     return NextResponse.json(
       {
         success: true,
-        profile: extractedProfile,
+        profile: profileWithProxy,
       },
       {
         status: 200,
