@@ -38,95 +38,41 @@ export async function POST(request: NextRequest) {
 
     const rapidapiKey = process.env.INSTAGRAM_RAPIDAPI_KEY || ""
 
-    console.log("[v0] Step 1: Getting user ID for username:", cleanUsername)
-    const userIdResponse = await fetch("https://instagram-media-api.p.rapidapi.com/user/id", {
-      method: "POST",
+    console.log("[v0] Searching for Instagram user:", cleanUsername)
+
+    const url = `https://free-instagram-scraper.p.rapidapi.com/search/users/${cleanUsername}`
+    const response = await fetch(url, {
+      method: "GET",
       headers: {
         "x-rapidapi-key": rapidapiKey,
-        "x-rapidapi-host": "instagram-media-api.p.rapidapi.com",
-        "Content-Type": "application/json",
+        "x-rapidapi-host": "free-instagram-scraper.p.rapidapi.com",
       },
-      body: JSON.stringify({
-        username: cleanUsername,
-        proxy: "",
-      }),
     })
 
-    const userIdText = await userIdResponse.text()
-    console.log("[v0] User ID API response status:", userIdResponse.status)
-    console.log("[v0] User ID API response full:", userIdText)
+    const responseText = await response.text()
+    console.log("[v0] API response status:", response.status)
+    console.log("[v0] API response:", responseText.substring(0, 500))
 
-    let userIdData
+    if (!response.ok) {
+      console.error("[v0] API error - Status:", response.status)
+      console.error("[v0] API error - Response:", responseText)
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Failed to fetch profile: ${response.status}`,
+        },
+        {
+          status: response.status,
+          headers: { "Access-Control-Allow-Origin": "*" },
+        },
+      )
+    }
+
+    let data
     try {
-      userIdData = JSON.parse(userIdText)
+      data = JSON.parse(responseText)
     } catch (e) {
-      console.error("[v0] Failed to parse user ID response:", e)
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to get user ID",
-        },
-        {
-          status: 500,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        },
-      )
-    }
-
-    if (!userIdResponse.ok) {
-      console.error("[v0] User ID API error - Status:", userIdResponse.status)
-      console.error("[v0] User ID API error - Full response:", userIdText)
-      return NextResponse.json(
-        {
-          success: false,
-          error: userIdData?.message || "Failed to get user ID",
-        },
-        {
-          status: userIdResponse.status,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        },
-      )
-    }
-
-    const userId =
-      userIdData.id || userIdData.user_id || userIdData.userId || userIdData.data?.id || userIdData.data?.user_id
-    console.log("[v0] Extracted user ID:", userId, "from response:", JSON.stringify(userIdData, null, 2))
-
-    if (!userId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Could not extract user ID from response",
-        },
-        {
-          status: 400,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        },
-      )
-    }
-
-    console.log("[v0] Step 2: Getting profile info for user ID:", userId)
-    const profileResponse = await fetch("https://instagram-media-api.p.rapidapi.com/user/info", {
-      method: "POST",
-      headers: {
-        "x-rapidapi-key": rapidapiKey,
-        "x-rapidapi-host": "instagram-media-api.p.rapidapi.com",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userid: userId,
-        proxy: "",
-      }),
-    })
-
-    const profileText = await profileResponse.text()
-    console.log("[v0] Profile API response:", profileText.substring(0, 500))
-
-    let profileData
-    try {
-      profileData = JSON.parse(profileText)
-    } catch (e) {
-      console.error("[v0] Failed to parse profile response:", e)
+      console.error("[v0] Failed to parse response:", e)
       return NextResponse.json(
         {
           success: false,
@@ -139,34 +85,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!profileResponse.ok) {
-      console.error("[v0] Profile API error:", profileData)
+    console.log("[v0] Parsed data:", JSON.stringify(data, null, 2))
+
+    const users = data.users || data.data?.users || data.result?.users || []
+    const user = users.length > 0 ? users[0] : null
+
+    if (!user) {
       return NextResponse.json(
         {
           success: false,
-          error: profileData?.message || "Failed to fetch profile",
+          error: "User not found",
         },
         {
-          status: profileResponse.status,
+          status: 404,
           headers: { "Access-Control-Allow-Origin": "*" },
         },
       )
     }
 
-    const user = profileData.user || profileData.data || profileData
-    console.log("[v0] User data extracted:", JSON.stringify(user, null, 2))
-
     const extractedProfile = {
       username: user.username || cleanUsername,
       full_name: user.full_name || user.fullName || user.name || "",
-      biography: user.biography || user.bio || user.about || "",
-      profile_pic_url: user.profile_pic_url || user.profile_picture_url || user.profilePictureUrl || user.pic || "",
-      follower_count: user.follower_count || user.followers || user.follower || 0,
+      biography: user.biography || user.bio || "",
+      profile_pic_url: user.profile_pic_url || user.profile_picture_url || user.hd_profile_pic_url || "",
+      follower_count: user.follower_count || user.followers || 0,
       following_count: user.following_count || user.following || 0,
       media_count: user.media_count || user.posts || user.post_count || 0,
       is_private: user.is_private || user.private || false,
       is_verified: user.is_verified || user.verified || false,
-      pk: user.pk || user.id || userId,
+      pk: user.pk || user.id || user.user_id || "",
     }
 
     console.log("[v0] Final extracted profile:", JSON.stringify(extractedProfile, null, 2))
